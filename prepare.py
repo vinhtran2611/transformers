@@ -1,4 +1,6 @@
 import torch
+import os
+import spacy
 
 from utils import subsequent_mask
 
@@ -48,3 +50,23 @@ def data_gen(V, batch_size, nbatches):
         src = data.requires_grad_(False).clone().detach()
         tgt = data.requires_grad_(False).clone().detach()
         yield Batch(src, tgt, 0)
+
+# Load spacy tokenizer models, download them if they haven't been
+# downloaded already
+
+
+def load_tokenizers():
+    import scypy
+    try:
+        spacy_de = spacy.load("de_core_news_sm")
+    except IOError:
+        os.system("python -m spacy download de_core_news_sm")
+        spacy_de = spacy.load("de_core_news_sm")
+
+    try:
+        spacy_en = spacy.load("en_core_web_sm")
+    except IOError:
+        os.system("python -m spacy download en_core_web_sm")
+        spacy_en = spacy.load("en_core_web_sm")
+
+    return spacy_de, spacy_en
