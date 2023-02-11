@@ -1,5 +1,6 @@
 import torch
 import os
+from os.path import exists
 import spacy
 import torchtext.datasets as datasets
 from torchtext.vocab import build_vocab_from_iterator
@@ -78,6 +79,9 @@ def tokenize(text, tokenizer):
     return [tok.text for tok in tokenizer.tokenizer(text)]
 
 def yield_tokens(data_iter, tokenizer, index):
+    """
+    index = 0 for "de", index = 1 for "en"
+    """
     for from_to_tuple in data_iter:
         yield tokenizer(from_to_tuple[index])
 
@@ -107,4 +111,15 @@ def build_vocabulary(spacy_de, spacy_en):
     vocab_src.set_default_index(vocab_src["<unk>"])
     vocab_tgt.set_default_index(vocab_tgt["<unk>"])
 
+    return vocab_src, vocab_tgt
+
+def load_vocab(spacy_de, spacy_en):
+    if not exists("vocab.pt"):
+        vocab_src, vocab_tgt = build_vocabulary(spacy_de, spacy_en)
+        torch.save((vocab_src, vocab_tgt), "vocab.pt")
+    else:
+        vocab_src, vocab_tgt = torch.load("vocab.pt")
+    print("Finished.\nVocabulary sizes:")
+    print(len(vocab_src))
+    print(len(vocab_tgt))
     return vocab_src, vocab_tgt
