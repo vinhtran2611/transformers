@@ -189,9 +189,11 @@ def create_dataloaders(
     train_iter_map = to_map_style_dataset(train_iter)
     valid_iter_map = to_map_style_dataset(valid_iter)
     
+    # a Sampler could randomly permute a list of indices and yield each one at a time
     # DistributedSampler ensures each device gets a non-overlapping input batch.
     # The model is replicated on all the devices; 
     # each replica calculates gradients and simultaneously synchronizes with the others using the ring all-reduce algorithm.
+    # Read more at https://pytorch.org/docs/stable/data.html#data-loading-order-and-sampler
     train_sampler = (
         DistributedSampler(train_iter_map) if is_distributed else None
     )

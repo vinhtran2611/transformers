@@ -9,7 +9,6 @@ import GPUtil
 import torch.multiprocessing as mp
 
 
-
 from prepare import Batch, create_dataloaders, data_gen
 from optimizer import rate, DummyOptimizer, DummyScheduler
 from models import make_tranformers_model
@@ -148,7 +147,7 @@ def train_worker(
     model.cuda(gpu)
     module = model
     is_main_process = True
-    
+
     if is_distributed:
         dist.init_process_group(
             "nccl", init_method="env://", rank=gpu, world_size=ngpus_per_node
@@ -186,13 +185,13 @@ def train_worker(
 
     for epoch in range(config["num_epochs"]):
         if is_distributed:
-            # In distributed mode, calling the set_epoch() method at the beginning of each epoch 
-            # before creating the DataLoader iterator is necessary to make shuffling work properly across multiple epochs. 
+            # In distributed mode, calling the set_epoch() method at the beginning of each epoch
+            # before creating the DataLoader iterator is necessary to make shuffling work properly across multiple epochs.
             # Otherwise, the same ordering will be always used.
             train_dataloader.sampler.set_epoch(epoch)
             valid_dataloader.sampler.set_epoch(epoch)
 
-        model.train()
+        model.train()  # Make sure gradient tracking is on, and do a pass over the data
         print(f"[GPU{gpu}] Epoch {epoch} Training ====", flush=True)
         _, train_state = run_epoch(
             (Batch(b[0], b[1], pad_idx) for b in train_dataloader),
@@ -211,8 +210,8 @@ def train_worker(
             torch.save(module.state_dict(), file_path)
         torch.cuda.empty_cache()
 
+        model.eval() # We don't need gradients on to do reporting
         print(f"[GPU{gpu}] Epoch {epoch} Validation ====", flush=True)
-        model.eval()
         sloss = run_epoch(
             (Batch(b[0], b[1], pad_idx) for b in valid_dataloader),
             model,
@@ -228,3 +227,25 @@ def train_worker(
         file_path = "%sfinal.pt" % config["file_prefix"]
         torch.save(module.state_dict(), file_path)
 
+def train_distributed_model(vocab_src, vocab_tgt, spacy_de, spacy_en, config):
+    ngpus = torch.cuda.device_count()
+    os.environ["MASTER_ADDR"] = "localhost"
+    os.environ["MASTER_PORT"] = "12356"
+    print(f"Number of GPUs detected: {ngpus}")
+    print("Spawning training processes ...")
+    mp.spawn(
+        train_worker,
+        nprocs=ngpus,
+        args=(ngpus, vocab_src, vocab_tgt, spacy_de, spacy_en, config, True),
+    )
+
+
+def train_model(vocab_src, vocab_tgt, spacy_de, spacy_en, config):
+    if config["distributed"]:
+        train_distributed_model(
+            vocab_src, vocab_tgt, spacy_de, spacy_en, config
+        )
+    else:
+        train_worker(
+            0, 1, vocab_src, vocab_tgt, spacy_de, spacy_en, config, False
+        )
