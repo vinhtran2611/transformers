@@ -10,7 +10,7 @@ import GPUtil
 import torch.multiprocessing as mp
 
 
-from prepare import Batch, create_dataloaders, data_gen
+from prepare import Batch, create_dataloaders, data_gen, load_vocab, load_tokenizers
 from optimizer import rate, DummyOptimizer, DummyScheduler
 from models import make_tranformers_model
 from loss import SimpleLossCompute
@@ -251,7 +251,7 @@ def train_model(vocab_src, vocab_tgt, spacy_de, spacy_en, config):
             0, 1, vocab_src, vocab_tgt, spacy_de, spacy_en, config, False
         )
 
-def load_trained_model(vocab_src = None, vocab_tgt = None, spacy_de = None, spacy_en = None, config = None):
+def load_trained_model():
     config = {
         "batch_size": 32,
         "distributed": False,
@@ -264,8 +264,13 @@ def load_trained_model(vocab_src = None, vocab_tgt = None, spacy_de = None, spac
     }
     model_path = "multi30k_model_final.pt"
     if not exists(model_path):
+        spacy_de, spacy_en = load_tokenizers()
+        vocab_src, vocab_tgt = load_vocab(spacy_de, spacy_en)
         train_model(vocab_src, vocab_tgt, spacy_de, spacy_en, config)
 
     model = make_tranformers_model(len(vocab_src), len(vocab_tgt), N=6)
     model.load_state_dict(torch.load("multi30k_model_final.pt"))
     return model
+
+if __name__ == '__main__':
+    load_trained_model()
