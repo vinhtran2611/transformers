@@ -1,16 +1,24 @@
 import time
+import os
 import torch.nn as nn
 import torch
 from torch.optim.lr_scheduler import LambdaLR
+from torch.nn.parallel import DistributedDataParallel as DDP
+import torch.distributed as dist
+import GPUtil
+import torch.multiprocessing as mp
 
 
-from prepare import data_gen
-from optimizer  import rate, DummyOptimizer, DummyScheduler
+
+from prepare import Batch, create_dataloaders, data_gen
+from optimizer import rate, DummyOptimizer, DummyScheduler
 from models import make_tranformers_model
 from loss import SimpleLossCompute
 from translation import greedy_decode
-
+from utils import LabelSmoothing
 # Training Loop
+
+
 class TrainState:
     """Track number of steps, examples, and tokens processed"""
 
@@ -77,31 +85,6 @@ def run_epoch(
     return total_loss / total_tokens, train_state
 
 
-class LabelSmoothing(nn.Module):
-    "Implement label smoothing."
-
-    def __init__(self, size, padding_idx, smoothing=0.0):
-        super(LabelSmoothing, self).__init__()
-        self.criterion = nn.KLDivLoss(reduction="sum")
-        self.padding_idx = padding_idx
-        self.confidence = 1.0 - smoothing
-        self.smoothing = smoothing
-        self.size = size
-        self.true_dist = None
-
-    def forward(self, x, target):
-        assert x.size(1) == self.size
-        true_dist = x.data.clone()
-        true_dist.fill_(self.smoothing / (self.size - 2))
-        true_dist.scatter_(1, target.data.unsqueeze(1), self.confidence)
-        true_dist[:, self.padding_idx] = 0
-        mask = torch.nonzero(target.data == self.padding_idx)
-        if mask.dim() > 0:
-            true_dist.index_fill_(0, mask.squeeze(), 0.0)
-        self.true_dist = true_dist
-        return self.criterion(x, true_dist.clone().detach())
-
-
 # Train the simple sort task.
 def example_simple_model():
     V = 11
@@ -145,4 +128,103 @@ def example_simple_model():
     src_mask = torch.ones(1, 1, max_len)
     print(greedy_decode(model, src, src_mask, max_len=max_len, start_symbol=0))
 
+
+def train_worker(
+    gpu,
+    ngpus_per_node,
+    vocab_src,
+    vocab_tgt,
+    spacy_de,
+    spacy_en,
+    config,
+    is_distributed=False,
+):
+    print(f"Train worker process using GPU: {gpu} for training", flush=True)
+    torch.cuda.set_device(gpu)
+
+    pad_idx = vocab_tgt["<blank>"]
+    d_model = 512
+    model = make_tranformers_model(len(vocab_src), len(vocab_tgt), N=6)
+    model.cuda(gpu)
+    module = model
+    is_main_process = True
+    
+    if is_distributed:
+        dist.init_process_group(
+            "nccl", init_method="env://", rank=gpu, world_size=ngpus_per_node
+        )
+        model = DDP(model, device_ids=[gpu])
+        module = model.module
+        is_main_process = gpu == 0
+
+    criterion = LabelSmoothing(
+        size=len(vocab_tgt), padding_idx=pad_idx, smoothing=0.1
+    )
+    criterion.cuda(gpu)
+
+    train_dataloader, valid_dataloader = create_dataloaders(
+        gpu,
+        vocab_src,
+        vocab_tgt,
+        spacy_de,
+        spacy_en,
+        batch_size=config["batch_size"] // ngpus_per_node,
+        max_padding=config["max_padding"],
+        is_distributed=is_distributed,
+    )
+
+    optimizer = torch.optim.Adam(
+        model.parameters(), lr=config["base_lr"], betas=(0.9, 0.98), eps=1e-9
+    )
+    lr_scheduler = LambdaLR(
+        optimizer=optimizer,
+        lr_lambda=lambda step: rate(
+            step, d_model, factor=1, warmup=config["warmup"]
+        ),
+    )
+    train_state = TrainState()
+
+    for epoch in range(config["num_epochs"]):
+        if is_distributed:
+            # In distributed mode, calling the set_epoch() method at the beginning of each epoch 
+            # before creating the DataLoader iterator is necessary to make shuffling work properly across multiple epochs. 
+            # Otherwise, the same ordering will be always used.
+            train_dataloader.sampler.set_epoch(epoch)
+            valid_dataloader.sampler.set_epoch(epoch)
+
+        model.train()
+        print(f"[GPU{gpu}] Epoch {epoch} Training ====", flush=True)
+        _, train_state = run_epoch(
+            (Batch(b[0], b[1], pad_idx) for b in train_dataloader),
+            model,
+            SimpleLossCompute(module.generator, criterion),
+            optimizer,
+            lr_scheduler,
+            mode="train+log",
+            accum_iter=config["accum_iter"],
+            train_state=train_state,
+        )
+
+        GPUtil.showUtilization()
+        if is_main_process:
+            file_path = "%s%.2d.pt" % (config["file_prefix"], epoch)
+            torch.save(module.state_dict(), file_path)
+        torch.cuda.empty_cache()
+
+        print(f"[GPU{gpu}] Epoch {epoch} Validation ====", flush=True)
+        model.eval()
+        sloss = run_epoch(
+            (Batch(b[0], b[1], pad_idx) for b in valid_dataloader),
+            model,
+            SimpleLossCompute(module.generator, criterion),
+            DummyOptimizer(),
+            DummyScheduler(),
+            mode="eval",
+        )
+        print(sloss)
+        torch.cuda.empty_cache()
+
+    if is_main_process:
+        file_path = "%sfinal.pt" % config["file_prefix"]
+        torch.save(module.state_dict(), file_path)
 
