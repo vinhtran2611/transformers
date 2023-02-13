@@ -1,5 +1,6 @@
 import time
 import os
+from os.path import exists
 import torch.nn as nn
 import torch
 from torch.optim.lr_scheduler import LambdaLR
@@ -249,3 +250,22 @@ def train_model(vocab_src, vocab_tgt, spacy_de, spacy_en, config):
         train_worker(
             0, 1, vocab_src, vocab_tgt, spacy_de, spacy_en, config, False
         )
+
+def load_trained_model(vocab_src = None, vocab_tgt = None, spacy_de = None, spacy_en = None, config = None):
+    config = {
+        "batch_size": 32,
+        "distributed": False,
+        "num_epochs": 8,
+        "accum_iter": 10,
+        "base_lr": 1.0,
+        "max_padding": 72,
+        "warmup": 3000,
+        "file_prefix": "multi30k_model_",
+    }
+    model_path = "multi30k_model_final.pt"
+    if not exists(model_path):
+        train_model(vocab_src, vocab_tgt, spacy_de, spacy_en, config)
+
+    model = make_tranformers_model(len(vocab_src), len(vocab_tgt), N=6)
+    model.load_state_dict(torch.load("multi30k_model_final.pt"))
+    return model
