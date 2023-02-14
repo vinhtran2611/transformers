@@ -7,12 +7,7 @@ from torchtext.vocab import build_vocab_from_iterator
 from torch.nn.functional import pad
 from torchtext.data.functional import to_map_style_dataset
 from torch.utils.data import DistributedSampler, DataLoader
-
-from models import make_tranformers_model
-
-
-from utils import Batch, tokenize, yield_tokens
-
+from utils import Batch
 
 def data_gen(V, batch_size, nbatches):
     """
@@ -31,6 +26,7 @@ def data_gen(V, batch_size, nbatches):
 
 
 def load_tokenizers():
+    print(f"Loading tokenizers ...")
     try:
         spacy_de = spacy.load("de_core_news_sm")
     except IOError:
@@ -43,8 +39,19 @@ def load_tokenizers():
         os.system("python -m spacy download en_core_web_sm")
         spacy_en = spacy.load("en_core_web_sm")
 
+    print("Done.")
     return spacy_de, spacy_en
 
+
+def tokenize(text, tokenizer):
+    return [tok.text for tok in tokenizer.tokenizer(text)]
+
+def yield_tokens(data_iter, tokenizer, index):
+    """
+    index = 0 for "de", index = 1 for "en"
+    """
+    for from_to_tuple in data_iter:
+        yield tokenizer(from_to_tuple[index])
 
 def build_vocabulary(spacy_de, spacy_en):
     """
@@ -59,17 +66,18 @@ def build_vocabulary(spacy_de, spacy_en):
         return tokenize(text, spacy_en)
 
     print("Building German Vocabulary ...")
-    train, val, test = datasets.Multi30k(language_pair=("de", "en"))
+    train = datasets.Multi30k(split='train', language_pair=("de", "en"))
+    print(train)
     vocab_src = build_vocab_from_iterator(
-        yield_tokens(train + val + test, tokenize_de, index=0),
+        yield_tokens(train, tokenize_de, index=0),
         min_freq=2,
         specials=["<s>", "</s>", "<blank>", "<unk>"],
     )
 
     print("Building English Vocabulary ...")
-    train, val, test = datasets.Multi30k(language_pair=("de", "en"))
+    train = datasets.Multi30k(split= 'train', language_pair=("de", "en"))
     vocab_tgt = build_vocab_from_iterator(
-        yield_tokens(train + val + test, tokenize_en, index=1),
+        yield_tokens(train, tokenize_en, index=1),
         min_freq=2,
         specials=["<s>", "</s>", "<blank>", "<unk>"],
     )
@@ -216,3 +224,7 @@ def create_dataloaders(
         collate_fn=collate_fn,
     )
     return train_dataloader, valid_dataloader
+
+if __name__ == '__main__':
+   spacy_de, spacy_en = load_tokenizers()
+   vocab_src, vocab_tgt = load_vocab(spacy_de, spacy_en)

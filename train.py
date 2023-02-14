@@ -273,4 +273,4 @@ def load_trained_model():
     return model
 
 if __name__ == '__main__':
-    load_trained_model()
+    model = load_trained_model()

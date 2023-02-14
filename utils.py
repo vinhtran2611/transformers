@@ -1,9 +1,7 @@
 import torch.nn as nn
 import torch
 import copy
-from layers.layer_norm import LayerNorm
-from models import make_tranformers_model
-import torch.nn.functional as F
+
 
 def clones(module, N):
     "Produce N identical layers."
@@ -52,15 +50,7 @@ class Batch:
         )
         return tgt_mask
 
-def tokenize(text, tokenizer):
-    return [tok.text for tok in tokenizer.tokenizer(text)]
 
-def yield_tokens(data_iter, tokenizer, index):
-    """
-    index = 0 for "de", index = 1 for "en"
-    """
-    for from_to_tuple in data_iter:
-        yield tokenizer(from_to_tuple[index])
 
 class LabelSmoothing(nn.Module):
     "Implement label smoothing."

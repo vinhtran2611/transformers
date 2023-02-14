@@ -4,7 +4,7 @@ import torch.nn as nn
 import numpy as np
 import copy
 
-from utils import clones, Generator
+from layers.generator import Generator
 from layers.layer_norm import LayerNorm
 from layers.position_wise_feed_forward import PositionwiseFeedForward
 from blocks.encoder_layer import EncoderLayer
