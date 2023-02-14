@@ -140,12 +140,14 @@ def train_worker(
     is_distributed=False,
 ):
     print(f"Train worker process using GPU: {gpu} for training", flush=True)
-    torch.cuda.set_device(gpu)
+    if gpu:
+        torch.cuda.device(gpu)
 
     pad_idx = vocab_tgt["<blank>"]
     d_model = 512
     model = make_tranformers_model(len(vocab_src), len(vocab_tgt), N=6)
-    model.cuda(gpu)
+    if gpu:
+        model.cuda(gpu)
     module = model
     is_main_process = True
 
@@ -160,7 +162,8 @@ def train_worker(
     criterion = LabelSmoothing(
         size=len(vocab_tgt), padding_idx=pad_idx, smoothing=0.1
     )
-    criterion.cuda(gpu)
+    if gpu:
+        criterion.cuda(gpu)
 
     train_dataloader, valid_dataloader = create_dataloaders(
         gpu,
@@ -253,9 +256,9 @@ def train_model(vocab_src, vocab_tgt, spacy_de, spacy_en, config):
 
 def load_trained_model():
     config = {
-        "batch_size": 32,
+        "batch_size": 8,
         "distributed": False,
-        "num_epochs": 8,
+        "num_epochs": 1,
         "accum_iter": 10,
         "base_lr": 1.0,
         "max_padding": 72,

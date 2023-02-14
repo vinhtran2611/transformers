@@ -1,5 +1,7 @@
 import torch
 import os
+import itertools
+
 from os.path import exists
 import spacy
 import torchtext.datasets as datasets
@@ -55,9 +57,10 @@ def yield_tokens(data_iter, tokenizer, index):
 
 def build_vocabulary(spacy_de, spacy_en):
     """
+    Just using train dataset
     Vocabulary sizes:
-    German is 8315
-    English is 6384
+    German is 8014
+    English is 6191
     """
     def tokenize_de(text):
         return tokenize(text, spacy_de)
@@ -66,8 +69,7 @@ def build_vocabulary(spacy_de, spacy_en):
         return tokenize(text, spacy_en)
 
     print("Building German Vocabulary ...")
-    train = datasets.Multi30k(split='train', language_pair=("de", "en"))
-    print(train)
+    train = datasets.Multi30k(split = 'train', language_pair=("de", "en"))
     vocab_src = build_vocab_from_iterator(
         yield_tokens(train, tokenize_de, index=0),
         min_freq=2,
@@ -110,6 +112,11 @@ def collate_batch(
     max_padding=128,
     pad_id=2,
 ):
+    if device:
+        device = torch.device("cuda")
+    else:
+        device = torch.device('cpu')
+
     bs_id = torch.tensor([0], device=device)  # <s> token id
     eos_id = torch.tensor([1], device=device)  # </s> token id
     src_list, tgt_list = [], []
