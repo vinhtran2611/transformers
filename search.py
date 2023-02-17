@@ -15,3 +15,50 @@ def greedy_decode(model, src, src_mask, max_len, start_symbol):
             [ys, torch.zeros(1, 1).type_as(src.data).fill_(next_word)], dim=1
         )
     return ys
+
+def beam_search(model, src, src_mask, max_len, start_symbol, k, vocab_tgt):
+    # Encode the source sequence
+    memory = model.encode(src, src_mask)
+    
+    # Initialize the list of current hypotheses with the start symbol
+    hypotheses = [(torch.tensor([start_symbol]), 0)]
+    
+    # Repeat until the maximum length is reached
+    for _ in range(max_len - 1):
+        # Initialize a list to store the next set of hypotheses
+        next_hypotheses = []
+        
+        # Expand each hypothesis in the current set
+        for hypothesis in hypotheses:
+            # Get the current target sequence and its log probability
+            trg_seq, trg_log_prob = hypothesis
+            
+            # If the end-of-sequence token is generated, add the hypothesis to the final set
+            if trg_seq[-1] == vocab_tgt['</s>']:
+                next_hypotheses.append(hypothesis)
+                continue
+            
+            # Get the top k predictions for the next token
+            out = model.decode(
+                memory, src_mask, trg_seq.unsqueeze(0), subsequent_mask(trg_seq.size(0)).type_as(src.data)
+            )
+            log_probs = model.generator(out[:, -1]).log_softmax(dim=-1).squeeze()
+            top_k_probs, top_k_indices = torch.topk(log_probs, k)
+            
+            # Add each new hypothesis to the list of next hypotheses
+            for prob, index in zip(top_k_probs, top_k_indices):
+                next_hypothesis = (
+                    torch.cat([trg_seq, index.unsqueeze(0)]),
+                    trg_log_prob + prob.item()
+                )
+                next_hypotheses.append(next_hypothesis)
+        
+        # Sort the next set of hypotheses by their log probabilities
+        next_hypotheses = sorted(next_hypotheses, key=lambda x: x[1], reverse=True)
+        
+        # Select the top k hypotheses to keep for the next iteration
+        hypotheses = next_hypotheses[:k]
+    
+    # Return the target sequences of the top k hypotheses
+    # return [hypothesis[0] for hypothesis in hypotheses]
+    return hypothesis[0]     
