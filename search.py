@@ -16,7 +16,11 @@ def greedy_decode(model, src, src_mask, max_len, start_symbol):
         )
     return ys
 
-def beam_search(model, src, src_mask, max_len, start_symbol, k, vocab_tgt):
+def beam_search(model, src, src_mask, max_len, start_symbol, end_symbol, k):
+    """
+    Ref: https://towardsdatascience.com/foundations-of-nlp-explained-visually-beam-search-how-it-works-1586b9849a24
+    """
+    
     # Encode the source sequence
     memory = model.encode(src, src_mask)
     
@@ -34,7 +38,7 @@ def beam_search(model, src, src_mask, max_len, start_symbol, k, vocab_tgt):
             trg_seq, trg_log_prob = hypothesis
             
             # If the end-of-sequence token is generated, add the hypothesis to the final set
-            if trg_seq[-1] == vocab_tgt['</s>']:
+            if trg_seq[-1] == end_symbol:
                 next_hypotheses.append(hypothesis)
                 continue
             
