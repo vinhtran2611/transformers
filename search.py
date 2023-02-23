@@ -4,19 +4,21 @@ from utils import subsequent_mask
 def greedy_decode(model, src, src_mask, max_len, start_symbol):
     memory = model.encode(src, src_mask)
     ys = torch.zeros(1, 1).fill_(start_symbol).type_as(src.data)
-    for i in range(max_len - 1):
+    for i in range(max_len):
         out = model.decode(
             memory, src_mask, ys, subsequent_mask(ys.size(1)).type_as(src.data)
         )
-        prob = model.generator(out[:, -1])
+        prob = model.generator(out[:, -1, :])
         _, next_word = torch.max(prob, dim=1)
         next_word = next_word.data[0]
         ys = torch.cat(
             [ys, torch.zeros(1, 1).type_as(src.data).fill_(next_word)], dim=1
         )
-    return ys
+    
+    # Return the target sequence without the start symbol
+    return ys[:, 1:]
 
-def beam_search(model, src, src_mask, max_len, start_symbol, end_symbol, k):
+def beam_search(model, src, src_mask, max_len, start_symbol, k, end_symbol = 1):
     """
     Ref: https://towardsdatascience.com/foundations-of-nlp-explained-visually-beam-search-how-it-works-1586b9849a24
     """
@@ -38,9 +40,9 @@ def beam_search(model, src, src_mask, max_len, start_symbol, end_symbol, k):
             trg_seq, trg_log_prob = hypothesis
             
             # If the end-of-sequence token is generated, add the hypothesis to the final set
-            if trg_seq[-1] == end_symbol:
-                next_hypotheses.append(hypothesis)
-                continue
+            # if trg_seq[-1] == end_symbol:
+            #     next_hypotheses.append(hypothesis)
+            #     continue
             
             # Get the top k predictions for the next token
             out = model.decode(

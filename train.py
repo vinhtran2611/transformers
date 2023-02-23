@@ -9,13 +9,13 @@ import torch.distributed as dist
 import GPUtil
 import torch.multiprocessing as mp
 
-
 from prepare import Batch, create_dataloaders, data_gen, load_vocab, load_tokenizers
 from optimizer import rate, DummyOptimizer, DummyScheduler
 from models import make_tranformers_model
 from loss import SimpleLossCompute
-from translation import greedy_decode
+from search import greedy_decode, beam_search
 from utils import LabelSmoothing
+
 # Training Loop
 
 
@@ -83,50 +83,6 @@ def run_epoch(
         del loss
         del loss_node
     return total_loss / total_tokens, train_state
-
-
-# Train the simple sort task.
-def example_simple_model():
-    V = 11
-    criterion = LabelSmoothing(size=V, padding_idx=0, smoothing=0.0)
-    model = make_tranformers_model(V, V, N=2)
-
-    optimizer = torch.optim.Adam(
-        model.parameters(), lr=0.5, betas=(0.9, 0.98), eps=1e-9
-    )
-    lr_scheduler = LambdaLR(
-        optimizer=optimizer,
-        lr_lambda=lambda step: rate(
-            step, model_size=model.src_embed[0].d_model, factor=1.0, warmup=400
-        ),
-    )
-
-    batch_size = 80
-    for epoch in range(10):
-        model.train()
-        run_epoch(
-            data_gen(V, batch_size, 20),
-            model,
-            SimpleLossCompute(model.generator, criterion),
-            optimizer,
-            lr_scheduler,
-            mode="train",
-        )
-        model.eval()
-        run_epoch(
-            data_gen(V, batch_size, 5),
-            model,
-            SimpleLossCompute(model.generator, criterion),
-            DummyOptimizer(),
-            DummyScheduler(),
-            mode="eval",
-        )[0]
-
-    model.eval()
-    src = torch.LongTensor([[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]])
-    max_len = src.shape[1]
-    src_mask = torch.ones(1, 1, max_len)
-    print(greedy_decode(model, src, src_mask, max_len=max_len, start_symbol=0))
 
 
 def train_worker(
@@ -243,7 +199,6 @@ def train_distributed_model(vocab_src, vocab_tgt, spacy_de, spacy_en, config):
         args=(ngpus, vocab_src, vocab_tgt, spacy_de, spacy_en, config, True),
     )
 
-
 def train_model(vocab_src, vocab_tgt, spacy_de, spacy_en, config):
     if config["distributed"]:
         train_distributed_model(
@@ -275,5 +230,67 @@ def load_trained_model():
     model.load_state_dict(torch.load("multi30k_model_final.pt"))
     return model
 
+# Train the simple sort task.
+def train_sort_task():
+    print("Traing sort task....")
+    V = 11
+    criterion = LabelSmoothing(size=V, padding_idx=0, smoothing=0.0)
+    model = make_tranformers_model(V, V, N=2)
+
+    optimizer = torch.optim.Adam(
+        model.parameters(), lr=0.5, betas=(0.9, 0.98), eps=1e-9
+    )
+    lr_scheduler = LambdaLR(
+        optimizer=optimizer,
+        lr_lambda=lambda step: rate(
+            step, model_size=model.src_embed[0].d_model, factor=1.0, warmup=400
+        ),
+    )
+
+    batch_size = 80
+    for epoch in range(20):
+        model.train()
+        run_epoch(
+            data_gen(V, batch_size, 20),
+            model,
+            SimpleLossCompute(model.generator, criterion),
+            optimizer,
+            lr_scheduler,
+            mode="train",
+        )
+        model.eval()
+        run_epoch(
+            data_gen(V, batch_size, 5),
+            model,
+            SimpleLossCompute(model.generator, criterion),
+            DummyOptimizer(),
+            DummyScheduler(),
+            mode="eval",
+        )[0]
+
+    file_path = "copy_model.pt"
+    torch.save(model.state_dict(), file_path)
+
+    return model
+
+def load_sort_model(training = False):
+    if training:
+        model = train_sort_task()
+    else:
+        print("Loading sort model....")
+        model = make_tranformers_model(11, 11, N=2)
+        model.load_state_dict(torch.load("copy_model.pt"))
+    return model
+
+
 if __name__ == '__main__':
-    model = load_trained_model()
+    model = load_sort_model()
+
+    model.eval()
+    src = torch.randint(1, 11, size=(1, 10))
+    print(f"Input: {src}")
+    # print(f"Expect: {torch.sort(src)[0]}")
+    max_len = src.shape[1]
+    src_mask = torch.ones(1, 1, max_len)
+    print(f"Output greedy: {greedy_decode(model, src, src_mask, max_len=max_len, start_symbol=0)}")
+    # print(f"Output beam: {beam_search(model, src, src_mask, max_len=max_len, start_symbol=0, k = 2)}")

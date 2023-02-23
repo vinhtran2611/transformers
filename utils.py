@@ -51,7 +51,6 @@ class Batch:
         return tgt_mask
 
 
-
 class LabelSmoothing(nn.Module):
     "Implement label smoothing."
 
