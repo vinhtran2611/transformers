@@ -9,7 +9,7 @@ import torch.distributed as dist
 import GPUtil
 import torch.multiprocessing as mp
 
-from prepare import Batch, create_dataloaders, data_gen, load_vocab, load_tokenizers
+from prepare import Batch, create_dataloaders, data_gen_copy_task, load_vocab, load_tokenizers
 from optimizer import rate, DummyOptimizer, DummyScheduler
 from models import make_tranformers_model
 from loss import SimpleLossCompute
@@ -251,7 +251,7 @@ def train_sort_task():
     for epoch in range(20):
         model.train()
         run_epoch(
-            data_gen(V, batch_size, 20),
+            data_gen_copy_task(V, batch_size, 20),
             model,
             SimpleLossCompute(model.generator, criterion),
             optimizer,
@@ -260,7 +260,7 @@ def train_sort_task():
         )
         model.eval()
         run_epoch(
-            data_gen(V, batch_size, 5),
+            data_gen_copy_task(V, batch_size, 5),
             model,
             SimpleLossCompute(model.generator, criterion),
             DummyOptimizer(),
@@ -288,9 +288,10 @@ if __name__ == '__main__':
 
     model.eval()
     src = torch.randint(1, 11, size=(1, 10))
-    print(f"Input: {src}")
+    src[:, 0] = 0
+    print(f"Input: \n{src[:, 1:]}")
     # print(f"Expect: {torch.sort(src)[0]}")
     max_len = src.shape[1]
     src_mask = torch.ones(1, 1, max_len)
-    print(f"Output greedy: {greedy_decode(model, src, src_mask, max_len=max_len, start_symbol=0)}")
+    print(f"Output: \n{greedy_decode(model, src, src_mask, max_len=max_len, start_symbol=0)}")
     # print(f"Output beam: {beam_search(model, src, src_mask, max_len=max_len, start_symbol=0, k = 2)}")

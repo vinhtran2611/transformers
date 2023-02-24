@@ -11,7 +11,19 @@ from torchtext.data.functional import to_map_style_dataset
 from torch.utils.data import DistributedSampler, DataLoader
 from utils import Batch
 
-def data_gen(V, batch_size, nbatches):
+def data_gen_copy_task(V, batch_size, nbatches):
+    """
+    Generate random data for a src-tgt copy task.
+    """
+
+    for i in range(nbatches):
+        data = torch.randint(1, V, size=(batch_size, 10))
+        data[:, 0] = 0
+        src = data.requires_grad_(False).clone().detach()
+        tgt = data.requires_grad_(False).clone().detach()
+        yield Batch(src, tgt, 0)
+
+def data_gen_sort_task(V, batch_size, nbatches):
     """
     Generate random data for a src-tgt copy task.
     """
@@ -233,5 +245,9 @@ def create_dataloaders(
     return train_dataloader, valid_dataloader
 
 if __name__ == '__main__':
-   spacy_de, spacy_en = load_tokenizers()
-   vocab_src, vocab_tgt = load_vocab(spacy_de, spacy_en)
+#    spacy_de, spacy_en = load_tokenizers()
+#    vocab_src, vocab_tgt = load_vocab(spacy_de, spacy_en)
+    sample = next(data_gen_copy_task(11, 1, 2))
+    print(sample.src)
+    print(sample.tgt)
+    print(sample.tgt_y)
