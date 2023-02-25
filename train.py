@@ -9,7 +9,13 @@ import torch.distributed as dist
 import GPUtil
 import torch.multiprocessing as mp
 
-from prepare import Batch, create_dataloaders, data_gen_copy_task, load_vocab, load_tokenizers
+from prepare import (
+    Batch,
+    create_dataloaders,
+    data_gen_copy_task,
+    load_vocab,
+    load_tokenizers,
+)
 from optimizer import rate, DummyOptimizer, DummyScheduler
 from models import make_tranformers_model
 from loss import SimpleLossCompute
@@ -47,9 +53,7 @@ def run_epoch(
     n_accum = 0
 
     for i, batch in enumerate(data_iter):
-        out = model.forward(
-            batch.src, batch.tgt, batch.src_mask, batch.tgt_mask
-        )
+        out = model.forward(batch.src, batch.tgt, batch.src_mask, batch.tgt_mask)
         # loss_node = loss_node / accum_iter
         loss, loss_node = loss_compute(out, batch.tgt_y, batch.ntokens)
 
@@ -115,9 +119,7 @@ def train_worker(
         module = model.module
         is_main_process = gpu == 0
 
-    criterion = LabelSmoothing(
-        size=len(vocab_tgt), padding_idx=pad_idx, smoothing=0.1
-    )
+    criterion = LabelSmoothing(size=len(vocab_tgt), padding_idx=pad_idx, smoothing=0.1)
     if gpu:
         criterion.cuda(gpu)
 
@@ -137,9 +139,7 @@ def train_worker(
     )
     lr_scheduler = LambdaLR(
         optimizer=optimizer,
-        lr_lambda=lambda step: rate(
-            step, d_model, factor=1, warmup=config["warmup"]
-        ),
+        lr_lambda=lambda step: rate(step, d_model, factor=1, warmup=config["warmup"]),
     )
     train_state = TrainState()
 
@@ -170,7 +170,7 @@ def train_worker(
             torch.save(module.state_dict(), file_path)
         torch.cuda.empty_cache()
 
-        model.eval() # We don't need gradients on to do reporting
+        model.eval()  # We don't need gradients on to do reporting
         print(f"[GPU{gpu}] Epoch {epoch} Validation ====", flush=True)
         sloss = run_epoch(
             (Batch(b[0], b[1], pad_idx) for b in valid_dataloader),
@@ -187,6 +187,7 @@ def train_worker(
         file_path = "%sfinal.pt" % config["file_prefix"]
         torch.save(module.state_dict(), file_path)
 
+
 def train_distributed_model(vocab_src, vocab_tgt, spacy_de, spacy_en, config):
     ngpus = torch.cuda.device_count()
     os.environ["MASTER_ADDR"] = "localhost"
@@ -199,15 +200,13 @@ def train_distributed_model(vocab_src, vocab_tgt, spacy_de, spacy_en, config):
         args=(ngpus, vocab_src, vocab_tgt, spacy_de, spacy_en, config, True),
     )
 
+
 def train_model(vocab_src, vocab_tgt, spacy_de, spacy_en, config):
     if config["distributed"]:
-        train_distributed_model(
-            vocab_src, vocab_tgt, spacy_de, spacy_en, config
-        )
+        train_distributed_model(vocab_src, vocab_tgt, spacy_de, spacy_en, config)
     else:
-        train_worker(
-            0, 1, vocab_src, vocab_tgt, spacy_de, spacy_en, config, False
-        )
+        train_worker(0, 1, vocab_src, vocab_tgt, spacy_de, spacy_en, config, False)
+
 
 def load_trained_model():
     config = {
@@ -230,9 +229,10 @@ def load_trained_model():
     model.load_state_dict(torch.load("multi30k_model_final.pt"))
     return model
 
+
 # Train the simple sort task.
-def train_sort_task():
-    print("Traing sort task....")
+def train_copy_task():
+    print("Traing copy task....")
     V = 11
     criterion = LabelSmoothing(size=V, padding_idx=0, smoothing=0.0)
     model = make_tranformers_model(V, V, N=2)
@@ -273,18 +273,19 @@ def train_sort_task():
 
     return model
 
-def load_sort_model(training = False):
+
+def load_copy_model(training=False):
     if training:
-        model = train_sort_task()
+        model = train_copy_task()
     else:
-        print("Loading sort model....")
+        print("Loading copy model....")
         model = make_tranformers_model(11, 11, N=2)
         model.load_state_dict(torch.load("copy_model.pt"))
     return model
 
 
-if __name__ == '__main__':
-    model = load_sort_model()
+if __name__ == "__main__":
+    model = load_copy_model()
 
     model.eval()
     src = torch.randint(1, 11, size=(1, 10))
@@ -293,5 +294,9 @@ if __name__ == '__main__':
     # print(f"Expect: {torch.sort(src)[0]}")
     max_len = src.shape[1]
     src_mask = torch.ones(1, 1, max_len)
-    print(f"Output: \n{greedy_decode(model, src, src_mask, max_len=max_len, start_symbol=0)}")
-    # print(f"Output beam: {beam_search(model, src, src_mask, max_len=max_len, start_symbol=0, k = 2)}")
+    print(
+        f"Output: \n{greedy_decode(model, src, src_mask, max_len=max_len, start_symbol=0)}"
+    )
+    print(
+        f"Output beam: \n{beam_search(model, src, src_mask, max_len=max_len, start_symbol=0, beam_size = 2)}"
+    )

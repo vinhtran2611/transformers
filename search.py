@@ -1,4 +1,5 @@
 import torch
+import tqdm
 from utils import subsequent_mask
 
 def greedy_decode(model, src, src_mask, max_len, start_symbol):
@@ -15,56 +16,46 @@ def greedy_decode(model, src, src_mask, max_len, start_symbol):
             [ys, torch.zeros(1, 1).type_as(src.data).fill_(next_word)], dim=1
         )
     
-    # Return the target sequence without the start symbol
-    return ys[:, 1:]
+    return ys
 
-def beam_search(model, src, src_mask, max_len, start_symbol, k, end_symbol = 1):
+import torch
+
+# Function to perform beam search decoding
+def beam_search(model, src, src_mask, max_len, start_symbol, beam_size):
     """
-    Ref: https://towardsdatascience.com/foundations-of-nlp-explained-visually-beam-search-how-it-works-1586b9849a24
+    Reference begin slide 34/79.
+    Link: https://web.stanford.edu/class/archive/cs/cs224n/cs224n.1194/slides/cs224n-2019-lecture08-nmt.pdf
     """
-    
-    # Encode the source sequence
+    # Encode the source sentence
     memory = model.encode(src, src_mask)
     
-    # Initialize the list of current hypotheses with the start symbol
-    hypotheses = [(torch.tensor([start_symbol]), 0)]
+    # Initialize the beam with a single hypothesis containing only the start symbol
+    ys = torch.ones(1, 1).fill_(start_symbol).type_as(src.data)
+    beam = [(ys, 0)]
     
-    # Repeat until the maximum length is reached
-    for _ in range(max_len - 1):
-        # Initialize a list to store the next set of hypotheses
-        next_hypotheses = []
-        
-        # Expand each hypothesis in the current set
-        for hypothesis in hypotheses:
-            # Get the current target sequence and its log probability
-            trg_seq, trg_log_prob = hypothesis
-            
-            # If the end-of-sequence token is generated, add the hypothesis to the final set
-            # if trg_seq[-1] == end_symbol:
-            #     next_hypotheses.append(hypothesis)
-            #     continue
-            
-            # Get the top k predictions for the next token
+    # Loop until either the maximum target sentence length is reached or 
+    # all hypotheses in the beam have reached an end-of-sequence token
+    for i in range(max_len - 1):
+        candidates = []
+        # Extend each hypothesis in the current beam with the beam_size most likely next words 
+        # according to the model's output probability distribution
+        for ys, score in beam:
             out = model.decode(
-                memory, src_mask, trg_seq.unsqueeze(0), subsequent_mask(trg_seq.size(0)).type_as(src.data)
+                memory, src_mask, ys,
+                subsequent_mask(ys.size(1)).type_as(src.data)
             )
-            log_probs = model.generator(out[:, -1]).log_softmax(dim=-1).squeeze()
-            top_k_probs, top_k_indices = torch.topk(log_probs, k)
-            
-            # Add each new hypothesis to the list of next hypotheses
-            for prob, index in zip(top_k_probs, top_k_indices):
-                next_hypothesis = (
-                    torch.cat([trg_seq, index.unsqueeze(0)]),
-                    trg_log_prob + prob.item()
-                )
-                next_hypotheses.append(next_hypothesis)
+            prob = model.generator(out[:, -1, :])
+            topk_prob, topk_indices = torch.topk(prob, k=beam_size)
+            for j in range(beam_size):
+                # Concatenate the current hypothesis with each of the topk_indices to form a new candidate hypothesis
+                candidate = torch.cat([ys, topk_indices[:, j].unsqueeze(1)], dim=1)
+                # Compute the score of the new hypothesis as the sum of the log probabilities of its constituent words
+                candidates.append((candidate, score + torch.log(topk_prob[:, j])))
+                
+        # Sort the candidate hypotheses by their scores
+        candidates.sort(key=lambda x: x[1])
+        # Select the top beam_size hypotheses to form the new beam
+        beam = candidates[:beam_size]
         
-        # Sort the next set of hypotheses by their log probabilities
-        next_hypotheses = sorted(next_hypotheses, key=lambda x: x[1], reverse=True)
-        
-        # Select the top k hypotheses to keep for the next iteration
-        hypotheses = next_hypotheses[:k]
-    
-    # Return the target sequences of the top k hypotheses
-    # return [hypothesis[0] for hypothesis in hypotheses]
-    return hypothesis[0]     
+    # Return the hypothesis with the highest score
+    return beam[0][0]
