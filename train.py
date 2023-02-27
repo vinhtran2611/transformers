@@ -53,7 +53,7 @@ def run_epoch(
     n_accum = 0
 
     for i, batch in enumerate(data_iter):
-        out = model.forward(batch.src, batch.tgt, batch.src_mask, batch.tgt_mask)
+        out = model.forward(batch.src, batch.tgt, batch.src_mask, batch.tgt_mask) # B, T, vocab
         # loss_node = loss_node / accum_iter
         loss, loss_node = loss_compute(out, batch.tgt_y, batch.ntokens)
 
@@ -180,6 +180,7 @@ def train_worker(
             DummyScheduler(),
             mode="eval",
         )
+
         print(sloss)
         torch.cuda.empty_cache()
 
@@ -206,28 +207,6 @@ def train_model(vocab_src, vocab_tgt, spacy_de, spacy_en, config):
         train_distributed_model(vocab_src, vocab_tgt, spacy_de, spacy_en, config)
     else:
         train_worker(0, 1, vocab_src, vocab_tgt, spacy_de, spacy_en, config, False)
-
-
-def load_trained_model():
-    config = {
-        "batch_size": 8,
-        "distributed": False,
-        "num_epochs": 1,
-        "accum_iter": 10,
-        "base_lr": 1.0,
-        "max_padding": 72,
-        "warmup": 3000,
-        "file_prefix": "multi30k_model_",
-    }
-    model_path = "multi30k_model_final.pt"
-    if not exists(model_path):
-        spacy_de, spacy_en = load_tokenizers()
-        vocab_src, vocab_tgt = load_vocab(spacy_de, spacy_en)
-        train_model(vocab_src, vocab_tgt, spacy_de, spacy_en, config)
-
-    model = make_tranformers_model(len(vocab_src), len(vocab_tgt), N=6)
-    model.load_state_dict(torch.load("multi30k_model_final.pt"))
-    return model
 
 
 # Train the simple sort task.
@@ -284,19 +263,43 @@ def load_copy_model(training=False):
     return model
 
 
-if __name__ == "__main__":
-    model = load_copy_model()
+def load_trained_model():
+    config = {
+        "batch_size": 8, # 32
+        "distributed": False,
+        "num_epochs": 1, # 8
+        "accum_iter": 10,
+        "base_lr": 1.0,
+        "max_padding": 72,
+        "warmup": 3000,
+        "file_prefix": "multi30k_model_",
+    }
+    model_path = "multi30k_model_final.pt"
+    spacy_de, spacy_en = load_tokenizers()
+    vocab_src, vocab_tgt = load_vocab(spacy_de, spacy_en)
 
-    model.eval()
-    src = torch.randint(1, 11, size=(1, 10))
-    src[:, 0] = 0
-    print(f"Input: \n{src[:, 1:]}")
-    # print(f"Expect: {torch.sort(src)[0]}")
-    max_len = src.shape[1]
-    src_mask = torch.ones(1, 1, max_len)
-    print(
-        f"Output: \n{greedy_decode(model, src, src_mask, max_len=max_len, start_symbol=0)}"
-    )
-    print(
-        f"Output beam: \n{beam_search(model, src, src_mask, max_len=max_len, start_symbol=0, beam_size = 2)}"
-    )
+    if not exists(model_path):
+        train_model(vocab_src, vocab_tgt, spacy_de, spacy_en, config)
+
+    model = make_tranformers_model(len(vocab_src), len(vocab_tgt), N=6)
+    model.load_state_dict(torch.load("multi30k_model_final.pt"))
+    return model
+
+if __name__ == "__main__":
+    # model = load_copy_model()
+
+    # model.eval()
+    # src = torch.randint(1, 11, size=(1, 10))
+    # src[:, 0] = 0
+    # print(f"Input: \n{src[:, 1:]}")
+    # # print(f"Expect: {torch.sort(src)[0]}")
+    # max_len = src.shape[1]
+    # src_mask = torch.ones(1, 1, max_len)
+    # print(
+    #     f"Output: \n{greedy_decode(model, src, src_mask, max_len=max_len, start_symbol=0)}"
+    # )
+    # print(
+    #     f"Output beam: \n{beam_search(model, src, src_mask, max_len=max_len, start_symbol=0, beam_size = 2)}"
+    # )
+
+    model = load_trained_model()

@@ -18,7 +18,6 @@ def greedy_decode(model, src, src_mask, max_len, start_symbol):
     
     return ys
 
-import torch
 
 # Function to perform beam search decoding
 def beam_search(model, src, src_mask, max_len, start_symbol, beam_size):
@@ -41,11 +40,11 @@ def beam_search(model, src, src_mask, max_len, start_symbol, beam_size):
         # according to the model's output probability distribution
         for ys, score in beam:
             out = model.decode(
-                memory, src_mask, ys,
-                subsequent_mask(ys.size(1)).type_as(src.data)
+                memory, src_mask, ys, subsequent_mask(ys.size(1)).type_as(src.data)
             )
             prob = model.generator(out[:, -1, :])
             topk_prob, topk_indices = torch.topk(prob, k=beam_size)
+
             for j in range(beam_size):
                 # Concatenate the current hypothesis with each of the topk_indices to form a new candidate hypothesis
                 candidate = torch.cat([ys, topk_indices[:, j].unsqueeze(1)], dim=1)
